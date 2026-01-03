@@ -1,5 +1,5 @@
 import express from 'express';
-import Meeting from '../models/meetingModel.js'; 
+import Meeting from '../models/meetingModel.js';
 import upload from '../config/multer.js';
 
 const router = express.Router();
@@ -11,7 +11,7 @@ router.post('/upload-audio', upload.single('audio'), async (req, res) => {
       return res.status(400).json({ msg: 'No audio file uploaded' });
     }
 
-    const userId = req.body.user_id; 
+    const userId = req.body.user_id;
 
     const newMeeting = new Meeting({
       user_id: userId,

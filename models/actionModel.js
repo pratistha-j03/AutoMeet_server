@@ -16,12 +16,12 @@ const ActionItemSchema = new Schema({
     default: 'Unassigned'
   },
   deadline: {
-    type: Date, 
-    required: false
+    type: String,
+    default: 'TBA'
   },
   calendar_event_id: {
     type: String,
-    required: false
+    default: null
   },
   createdAt: {
     type: Date,

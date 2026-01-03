@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import authControl from './controllers/authControl.js';
 import meetingControl from './controllers/meetingControl.js';
+import aiControl from './controllers/aiControl.js';
 
 dotenv.config();
 
@@ -14,6 +15,7 @@ app.use('/uploads', express.static('uploads'));
 
 app.use('/auth', authControl);
 app.use('/meetings', meetingControl);
+app.use('/ai', aiControl);
 
 app.get('/', (req, res) => {
   res.send('AutoMeet Server is running');
