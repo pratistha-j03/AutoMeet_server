@@ -2,12 +2,12 @@ import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 const SummarySchema = new Schema({
-  meeting_id: {
+  meetingId: {
     type: Schema.Types.ObjectId,
     ref: 'Meeting',
     required: true
   },
-  summary_text: {
+  summaryText: {
     type: String, 
     required: true
   },
