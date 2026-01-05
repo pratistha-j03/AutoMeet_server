@@ -7,6 +7,9 @@ import Transcript from '../models/transcriptModel.js';
 import Summary from '../models/summaryModel.js';
 import mongoose from 'mongoose';
 import path from 'path';
+import fs from 'fs';
+import {pipeline} from 'stream/promises';
+import {Readable} from 'stream';
 
 const router = express.Router();
 const getGeminiClients = () => {
@@ -23,12 +26,12 @@ async function updateMeetingStatus(id, status) {
 }
 
 router.post('/:id/transcribe', async (req, res) => {
+    let tempFilePath = null;
     try {
         const { id } = req.params;
         const { genAI, fileManager } = getGeminiClients();
 
         const existingTranscript = await Transcript.findOne({ meetingId: id });
-
         if (existingTranscript) {
             console.log("Transcript found in cache. Skipping Gemini.");
             return res.status(200).json({
@@ -37,22 +40,36 @@ router.post('/:id/transcribe', async (req, res) => {
             });
         }
 
-        // 1. Validate Meeting & File
+        //  Validate Meeting & File
         const meeting = await Meeting.findById(id);
         if (!meeting.audioUrl) {
             return res.status(404).json({ error: "Meeting or audio file not found" });
         }
-        const absolutePath = meeting.audioUrl;
+        console.log("Downloading audio from Cloudinary...");
 
-        // 2. Upload to Google AI (Temporary storage for processing)
-        const uploadResponse = await fileManager.uploadFile(absolutePath, {
-            mimeType: "audio/mp3",
+        // Download audio file to temp location
+        const extension = meeting.audioUrl.split('.').pop().split(/[?#]/)[0] || 'mp3';
+        tempFilePath = path.resolve(`./temp_meeting_${id}.${extension}`);
+        const response = await fetch(meeting.audioUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to download audio file: ${response.statusText}`);
+        }
+        // Stream to local temp file
+        const fileStream = fs.createWriteStream(tempFilePath);
+        await pipeline(Readable.fromWeb(response.body), fileStream);
+        
+        console.log(`Download complete: ${tempFilePath}`);
+
+        //  Upload to Google AI (Temporary storage for processing)
+        const mimeType = extension === 'webm' ? 'audio/webm' : 'audio/mp3';
+        const uploadResponse = await fileManager.uploadFile(tempFilePath, {
+            mimeType: mimeType,
             displayName: `Meeting_${id}`,
         });
 
-        // 3. Wait for processing (File API is async)
+        //  Wait for processing (File API is async)
 
-        // 4. Generate Transcript
+        //  Generate Transcript
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         const result = await model.generateContent([
@@ -74,10 +91,10 @@ router.post('/:id/transcribe', async (req, res) => {
         });
         await newTranscript.save();
 
-        // 5. Update Meeting Status 
+        //  Update Meeting Status 
         await updateMeetingStatus(id, 'transcribed');
 
-        // 6. Cleanup (Optional but recommended: delete file from Google servers)
+        // Cleanup (Optional but recommended: delete file from Google servers)
         // await fileManager.deleteFile(uploadResponse.file.name);
 
         res.status(200).json({
@@ -89,6 +106,14 @@ router.post('/:id/transcribe', async (req, res) => {
         console.error("Gemini Transcription Error:", error);
         res.status(500).json({ error: "Failed to transcribe audio with Gemini", details: error.message });
     }
+    finally {
+        //  Delete the local temp file
+        if (tempFilePath && fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+            console.log("Temporary file cleaned up.");
+        }
+    }
+
 });
 
 router.post('/:id/generate-summary', async (req, res) => {
