@@ -14,7 +14,7 @@ const MeetingSchema = new Schema({
   },
   audioUrl: {
     type: String, 
-    // required: true
+    required: true
   },
   uploadType: {
     type: String,

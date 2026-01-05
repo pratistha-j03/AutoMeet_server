@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import authControl from './controllers/authControl.js';
@@ -8,6 +9,7 @@ import aiControl from './controllers/aiControl.js';
 dotenv.config();
 
 const app = express();
+app.use(cors({origin: "http://localhost:5173"}));
 connectDB(); 
 
 app.use(express.json());
