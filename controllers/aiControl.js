@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import {pipeline} from 'stream/promises';
 import {Readable} from 'stream';
+import auth from '../middleware/auth.js';
 
 const router = express.Router();
 const getGeminiClients = () => {
@@ -25,7 +26,7 @@ async function updateMeetingStatus(id, status) {
     await Meeting.findByIdAndUpdate(id, { status: status });
 }
 
-router.post('/:id/transcribe', async (req, res) => {
+router.post('/:id/transcribe',auth, async (req, res) => {
     let tempFilePath = null;
     try {
         const { id } = req.params;
@@ -87,15 +88,13 @@ router.post('/:id/transcribe', async (req, res) => {
         const newTranscript = new Transcript({
             meetingId: id,
             rawText: text,
-            language: "en"
+            language: "en",
+
         });
         await newTranscript.save();
 
         //  Update Meeting Status 
         await updateMeetingStatus(id, 'transcribed');
-
-        // Cleanup (Optional but recommended: delete file from Google servers)
-        // await fileManager.deleteFile(uploadResponse.file.name);
 
         res.status(200).json({
             message: "Transcription successful",
@@ -116,7 +115,7 @@ router.post('/:id/transcribe', async (req, res) => {
 
 });
 
-router.post('/:id/generate-summary', async (req, res) => {
+router.post('/:id/generate-summary', auth, async (req, res) => {
     try {
         const { id } = req.params;
         const { genAI } = getGeminiClients();
@@ -158,6 +157,7 @@ router.post('/:id/generate-summary', async (req, res) => {
             decisions: aiContent.decisions
         });
         await newSummary.save();
+        await updateMeetingStatus(id, 'summarized');
 
         if (aiContent.action_items && aiContent.action_items.length > 0) {
             const actionsToSave = aiContent.action_items.map(item => ({
@@ -167,6 +167,7 @@ router.post('/:id/generate-summary', async (req, res) => {
                 deadline: item.deadline,
             }));
             await ActionItem.insertMany(actionsToSave);
+            await updateMeetingStatus(id, 'completed');
             console.log(`Saved ${actionsToSave.length} action items.`);
         }
         res.status(200).json({

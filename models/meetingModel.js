@@ -5,7 +5,7 @@ const MeetingSchema = new Schema({
   user_id: {
     type: Schema.Types.ObjectId,
     ref: 'User', 
-    // required: true
+    required: true
   },
   title: {
     type: String,
@@ -23,7 +23,7 @@ const MeetingSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['uploaded', 'transcribed', 'processed', 'completed', 'failed'],
+    enum: ['uploaded', 'transcribed', 'summarized', 'completed', 'failed'],
     default: 'uploaded'
   },
   createdAt: {

@@ -4,11 +4,13 @@ import upload from '../config/multer.js';
 import Transcript from '../models/transcriptModel.js';
 import Summary from '../models/summaryModel.js';
 import ActionItem from '../models/actionModel.js';
+import User from '../models/userModel.js';
+import auth from '../middleware/auth.js';
 
 const router = express.Router();
 
 // GET /meetings/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id',auth, async (req, res) => {
   try {
     const {id}= req.params;
     const meeting = await Meeting.findById(id);
@@ -36,13 +38,13 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /meetings/upload-audio
-router.post('/upload-audio', upload.single('audio'), async (req, res) => {
+router.post('/upload-audio',auth, upload.single('audio'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ msg: 'No audio file uploaded' });
     }
 
-    const userId = req.body.user_id ;
+    const userId = req.user.id ;
 
     const newMeeting = new Meeting({
       user_id: userId,
