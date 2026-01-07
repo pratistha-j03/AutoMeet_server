@@ -9,7 +9,11 @@ import aiControl from './controllers/aiControl.js';
 dotenv.config();
 
 const app = express();
-app.use(cors({origin: "http://localhost:5173"}));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://automeet-client.vercel.app" 
+];
+app.use(cors({origin: allowedOrigins}));
 connectDB(); 
 
 app.use(express.json());
