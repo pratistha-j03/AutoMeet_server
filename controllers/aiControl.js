@@ -8,9 +8,11 @@ import Summary from '../models/summaryModel.js';
 import mongoose from 'mongoose';
 import path from 'path';
 import fs from 'fs';
-import {pipeline} from 'stream/promises';
-import {Readable} from 'stream';
+import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
 import auth from '../middleware/auth.js';
+import { splitAudioIntoChunks, transcribeChunk, mergeTranscripts, getAudioDuration } from '../utils/audioChunker.js';
+import { summarizeShortText, summarizeLongText } from '../services/summarizeService.js';
 
 const router = express.Router();
 const getGeminiClients = () => {
@@ -26,8 +28,9 @@ async function updateMeetingStatus(id, status) {
     await Meeting.findByIdAndUpdate(id, { status: status });
 }
 
-router.post('/:id/transcribe',auth, async (req, res) => {
+router.post('/:id/transcribe', auth, async (req, res) => {
     let tempFilePath = null;
+    let chunkPaths = [];
     try {
         const { id } = req.params;
         const { genAI, fileManager } = getGeminiClients();
@@ -58,42 +61,46 @@ router.post('/:id/transcribe',auth, async (req, res) => {
         // Stream to local temp file
         const fileStream = fs.createWriteStream(tempFilePath);
         await pipeline(Readable.fromWeb(response.body), fileStream);
-        
+
         console.log(`Download complete: ${tempFilePath}`);
 
-        //  Upload to Google AI (Temporary storage for processing)
-        const mimeType = extension === 'webm' ? 'audio/webm' : 'audio/mp3';
-        const uploadResponse = await fileManager.uploadFile(tempFilePath, {
-            mimeType: mimeType,
-            displayName: `Meeting_${id}`,
-        });
-
-        //  Wait for processing (File API is async)
-
-        //  Generate Transcript
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const mimeType = extension === 'webm' ? 'audio/webm' : 'audio/mp3';
+        const duration = await getAudioDuration(tempFilePath);
 
-        const result = await model.generateContent([
-            {
-                fileData: {
-                    mimeType: uploadResponse.file.mimeType,
-                    fileUri: uploadResponse.file.uri
-                }
-            },
-            { text: "Transcribe this audio meeting word-for-word. Identify speakers if possible. Return ONLY the raw text." }
-        ]);
-
-        const text = result.response.text();
-
+        let text;
+        if (duration > 600) {
+            console.log(`Long audio detected (${Math.round(duration / 60)} mins). Using chunked transcription...`);
+            const chunks = await splitAudioIntoChunks(tempFilePath);
+            chunkPaths = chunks.map(c => c.path);
+            const chunkResults = await Promise.all(
+                chunks.map(chunk => transcribeChunk(chunk, fileManager, model, mimeType))
+            );
+            text = mergeTranscripts(chunkResults);
+        } else {
+            console.log(`Short audio (${Math.round(duration / 60)} mins). Using single transcription...`);
+            const uploadResponse = await fileManager.uploadFile(tempFilePath, {
+                mimeType: mimeType,
+                displayName: `Meeting_${id}`,
+            });
+            const result = await model.generateContent([
+                {
+                    fileData: {
+                        mimeType: uploadResponse.file.mimeType,
+                        fileUri: uploadResponse.file.uri
+                    }
+                },
+                { text: "Transcribe this audio meeting word-for-word. Identify speakers if possible. Return ONLY the raw text." }
+            ]);
+            text = result.response.text();
+        }
+        // Save transcript
         const newTranscript = new Transcript({
             meetingId: id,
             rawText: text,
             language: "en",
-
         });
         await newTranscript.save();
-
-        //  Update Meeting Status 
         await updateMeetingStatus(id, 'transcribed');
 
         res.status(200).json({
@@ -111,9 +118,17 @@ router.post('/:id/transcribe',auth, async (req, res) => {
             fs.unlinkSync(tempFilePath);
             console.log("Temporary file cleaned up.");
         }
+        chunkPaths.forEach(p => {
+            if (fs.existsSync(p)) {
+                fs.unlinkSync(p);
+                console.log(`Chunk cleaned up: ${p}`);
+            }
+        });
     }
 
 });
+
+const MAX_CHARS_SINGLE = 24000;
 
 router.post('/:id/generate-summary', auth, async (req, res) => {
     try {
@@ -129,26 +144,17 @@ router.post('/:id/generate-summary', auth, async (req, res) => {
             model: "gemini-2.5-flash",
             generationConfig: { responseMimeType: "application/json" }
         });
+        const plainModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        // 2. Prompt
-        const prompt = `
-            Analyze this meeting transcript.
-            Output a JSON object with this exact schema:
-            {
-                "summary": "string (executive summary)",
-                "decisions": ["string", "string"],
-                "action_items": [
-                    { "description": "string", "owner": "string", "deadline": "string" }
-                ]
-            }
-            
-            TRANSCRIPT:
-            ${transcriptDoc.rawText}
-        `;
+        let aiContent;
+        if (transcriptDoc.rawText.length > MAX_CHARS_SINGLE) {
+            console.log(`Long transcript (${transcriptDoc.rawText.length} chars). Using multi-stage summarization...`);
+            aiContent = await summarizeLongText(plainModel, transcriptDoc.rawText, model);
 
-        // 3. Generate
-        const result = await model.generateContent(prompt);
-        const aiContent = JSON.parse(result.response.text());
+        } else {
+            console.log("Short transcript. Using single-stage summarization...");
+            aiContent = await summarizeShortText(model, transcriptDoc.rawText);
+        }
 
         // 4. Save to Summaries Collection 
         const newSummary = new Summary({
