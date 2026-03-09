@@ -57,3 +57,31 @@ export async function summarizeLongText(plainModel, transcriptText, jsonModel) {
     const finalResult = await jsonModel.generateContent(reducePrompt);
     return JSON.parse(finalResult.response.text());
 }
+
+export async function runSummarization(meetingId) {
+    const transcriptDoc = await Transcript.findOne({ meetingId });
+    if (!transcriptDoc) throw new Error('No transcript found');
+
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', generationConfig: { responseMimeType: 'application/json' } });
+    const plainModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const aiContent = transcriptDoc.rawText.length > 24000
+        ? await summarizeLongText(plainModel, model, transcriptDoc.rawText)
+        : await summarizeShortText(model, transcriptDoc.rawText);
+
+    const newSummary = await new Summary({
+        meetingId,
+        summaryText: aiContent.summary,
+        decisions: aiContent.decisions
+    }).save();
+
+    if (aiContent.action_items?.length > 0) {
+        await ActionItem.insertMany(
+            aiContent.action_items.map(item => ({ meetingId, ...item }))
+        );
+    }
+
+    await Meeting.findByIdAndUpdate(meetingId, { status: 'completed' });
+    return newSummary;
+}
