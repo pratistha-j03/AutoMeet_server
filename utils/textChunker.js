@@ -1,5 +1,8 @@
 
 export function splitTextIntoChunks(text, maxCharsPerChunk = 12000) {
+    if (!text || typeof text !== 'string') {
+        throw new Error(`splitTextIntoChunks received invalid input: ${typeof text}`);
+    }
     const chunks = [];
     const sentences = text.split(/(?<=[.!?])\s+/); 
     let current = '';

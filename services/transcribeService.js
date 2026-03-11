@@ -36,7 +36,7 @@ export async function runTranscription(meetingId) {
         const duration = await getAudioDuration(tempFilePath);
         let text;
 
-        if (duration > 600) {
+        if (duration > 2700) {
             const chunks = await splitAudioIntoChunks(tempFilePath);
             chunkPaths = chunks.map(c => c.path);
             const results = await Promise.all(

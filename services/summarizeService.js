@@ -1,4 +1,9 @@
 import { splitTextIntoChunks } from "../utils/textChunker.js";
+import Transcript from '../models/transcriptModel.js';
+import Summary from '../models/summaryModel.js';
+import Meeting from '../models/meetingModel.js';
+import ActionItem from '../models/actionModel.js';
+import { GoogleGenerativeAI } from '@google/generative-ai'; 
 
 export async function summarizeShortText(model, transcriptText) {
     console.log(`Short transcript (${transcriptText.length} chars). Using single-stage summarization...`);
@@ -21,6 +26,8 @@ export async function summarizeShortText(model, transcriptText) {
 }
 
 export async function summarizeLongText(plainModel, transcriptText, jsonModel) {
+    console.log('[Summarize] transcriptText type:', typeof transcriptText);
+    console.log('[Summarize] transcriptText preview:', String(transcriptText).slice(0, 100));
     const chunks = splitTextIntoChunks(transcriptText, 12000);
     console.log(`Transcript split into ${chunks.length} chunks for summarization.`);
     const miniSummaries = await Promise.all(
